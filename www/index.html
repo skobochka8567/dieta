@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Меню на день</title>
+<style>
+:root{--bg:#e9e4e6;--card:#f6f2f3;--ink:#3a3438;--mute:#8a7f85;--line:#d8d0d3;--rose:#c4849a;--deep:#a4607a;--soft:#f0dce3;--grey:#b9b1b5}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:560px;margin:0 auto;padding:16px 14px 90px}
+h1{font-size:22px;font-weight:700;text-transform:capitalize}
+.sub{color:var(--mute);font-size:14px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px}
+.tot{background:var(--deep);color:#fff;border-radius:20px;padding:16px;margin-bottom:14px}
+.tot b{font-size:34px;font-weight:700}
+.macros{display:flex;gap:8px;margin-top:10px}
+.macros span{flex:1;background:rgba(255,255,255,.18);border-radius:12px;padding:6px 4px;text-align:center;font-size:13px}
+.macros i{display:block;font-style:normal;font-weight:700;font-size:16px}
+.slot{background:var(--card);border-radius:18px;padding:14px;margin-bottom:10px;border:1px solid var(--line)}
+.slot.opt{background:transparent;border:1px dashed var(--grey)}
+.slot.off{opacity:.5}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.lab{font-size:13px;color:var(--deep);font-weight:600}
+.name{font-size:17px;font-weight:600;margin:2px 0}
+.meta{font-size:13px;color:var(--mute)}
+button{font:inherit;border:0;border-radius:12px;padding:8px 12px;cursor:pointer;background:var(--soft);color:var(--deep);font-weight:600}
+button.main{background:var(--rose);color:#fff}
+details{margin-top:8px}summary{color:var(--deep);font-size:14px;cursor:pointer}
+ul,ol{padding-left:20px;margin:6px 0;font-size:15px}li{margin:2px 0}
+.tabs{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding:8px 14px calc(8px + env(safe-area-inset-bottom));gap:8px}
+.tabs button{flex:1;background:transparent;color:var(--mute)}.tabs button.on{background:var(--soft);color:var(--deep)}
+.shop label{display:flex;justify-content:space-between;gap:10px;padding:11px 4px;border-bottom:1px solid var(--line)}
+.shop input:checked+span{text-decoration:line-through;color:var(--mute)}
+.shop span{flex:1}.shop em{font-style:normal;color:var(--deep);font-weight:600}
+input[type=checkbox]{accent-color:var(--deep);width:18px;height:18px;margin-right:10px}
+.shop label>div{display:flex;align-items:center;flex:1}
+</style></head><body><main id="app">Загрузка…</main>
+<div class="tabs"><button data-tab="menu" class="on">Меню</button><button data-tab="shop">Продукты</button></div>
+<script>
+const SLOTS=[["breakfast","Завтрак"],["snack1","Перекус, по желанию"],["lunch","Обед"],["snack2","Перекус, по желанию"],["dinner","Ужин"]];
+const type=s=>s.startsWith("snack")?"snack":s;
+const KEY="menu_v1",today=()=>new Date().toISOString().slice(0,10);
+let R=[],P={},S,tab="menu";const open=new Set();
+const byId=id=>R.find(r=>r.id===id);
+const hasEgg=r=>r.ingredients.some(i=>i.id==="egg");
+const rnd=a=>a[Math.floor(Math.random()*a.length)];
+const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
+function pick(slot){
+  const plan=S.plan,used=Object.entries(plan).filter(([k])=>k!==slot).map(([,v])=>v);
+  const eggs=used.some(id=>hasEgg(byId(id)));
+  const seen=S.seen[slot]||[],recent=S.hist.flat();
+  let c=R.filter(r=>r.meal===type(slot)&&!used.includes(r.id)&&r.id!==plan[slot]&&!(eggs&&hasEgg(r)));
+  let c2=c.filter(r=>!seen.includes(r.id)&&!recent.includes(r.id));
+  if(!c2.length)c2=c.filter(r=>!seen.includes(r.id));
+  if(!c2.length){S.seen[slot]=[];c2=c}
+  const r=rnd(c2);(S.seen[slot]=S.seen[slot]||[]).push(r.id);return r.id;
+}
+function newDay(prev){
+  S={date:today(),plan:{},seen:{},off:{},bought:{},hist:prev?[...prev.hist,Object.values(prev.plan)].slice(-3):[]};
+  SLOTS.forEach(([s])=>{S.plan[s]=pick(s)});save();
+}
+const items=()=>SLOTS.filter(([s])=>!S.off[s]).map(([s])=>byId(S.plan[s]));
+function totals(){const t={kcal:0,protein:0,fat:0,carbs:0};items().forEach(r=>{for(const k in t)t[k]+=r[k]});return t}
+function shopList(){
+  const m={};items().forEach(r=>r.ingredients.forEach(i=>m[i.id]=(m[i.id]||0)+i.g));
+  return Object.entries(m).map(([id,g])=>{
+    let q;if(id==="egg")q=Math.max(1,Math.round(g/55))+" шт";
+    else{g=Math.round(g/5)*5;q=g>=1000?(g/1000).toFixed(2).replace(/\.?0+$/,"")+" кг":g+" г"}
+    return {id,name:id==="egg"?"Яйца":P[id].name,q}}).sort((a,b)=>a.name.localeCompare(b.name,"ru"));
+}
+function slotHtml([s,label]){
+  const r=byId(S.plan[s]),opt=type(s)==="snack",off=S.off[s];
+  const ing=r.ingredients.map(i=>`<li>${i.id==="egg"?"Яйца":P[i.id].name} — ${i.id==="egg"?Math.round(i.g/55)+" шт":i.g+" г"}</li>`).join("");
+  const steps=r.steps.map(x=>`<li>${x}</li>`).join("");
+  return `<div class="slot ${opt?"opt":""} ${off?"off":""}"><div class="row"><span class="lab">${label}</span>
+  <span>${opt?`<button data-skip="${s}">${off?"Вернуть":"Пропустить"}</button> `:""}<button data-swap="${s}">Заменить</button></span></div>
+  <div class="name">${r.name}</div>
+  <div class="meta">${r.kcal} ккал · Б ${r.protein} · Ж ${r.fat} · У ${r.carbs} · ${r.time} мин</div>
+  <details data-d="${r.id}" ${open.has(r.id)?"open":""}><summary>Рецепт</summary><ul>${ing}</ul><ol>${steps}</ol></details></div>`;
+}
+function render(){
+  const d=new Date().toLocaleDateString("ru-RU",{weekday:"long",day:"numeric",month:"long"});
+  let h;
+  if(tab==="menu"){const t=totals();
+    h=`<div class="top"><div><h1>${d}</h1><div class="sub">Меню на сегодня</div></div><button data-new>Новое меню</button></div>
+    <div class="tot"><b>${t.kcal}</b> ккал за день<div class="macros"><span><i>${t.protein}</i>белки</span><span><i>${t.fat}</i>жиры</span><span><i>${t.carbs}</i>углеводы</span></div></div>`+SLOTS.map(slotHtml).join("");
+  }else{
+    h=`<div class="top"><div><h1>Продукты</h1><div class="sub">На весь день, перекусы учитываются, если не пропущены</div></div></div><div class="shop">`+
+    shopList().map(x=>`<label><div><input type="checkbox" data-buy="${x.id}" ${S.bought[x.id]?"checked":""}><span>${x.name}</span></div><em>${x.q}</em></label>`).join("")+"</div>";
+  }
+  document.getElementById("app").innerHTML=h;
+}
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-swap],[data-skip],[data-new],[data-tab]");if(!t)return;
+  if(t.dataset.tab){tab=t.dataset.tab;document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b===t))}
+  else if(t.dataset.swap){S.plan[t.dataset.swap]=pick(t.dataset.swap);save()}
+  else if(t.dataset.skip){S.off[t.dataset.skip]=!S.off[t.dataset.skip];save()}
+  else if("new" in t.dataset){S.hist=S.hist;SLOTS.forEach(([s])=>{S.plan[s]=pick(s)});S.bought={};save()}
+  render();
+});
+document.addEventListener("change",e=>{if(e.target.dataset.buy){S.bought[e.target.dataset.buy]=e.target.checked;save()}});
+document.addEventListener("toggle",e=>{const id=e.target.dataset&&e.target.dataset.d;if(id)e.target.open?open.add(id):open.delete(id)},true);
+(async()=>{
+  [R,P]=await Promise.all([fetch("recipes.json").then(r=>r.json()),fetch("products.json").then(r=>r.json())]);
+  let old;try{old=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+  if(old&&old.date===today()&&Object.values(old.plan).every(byId))S=old;else newDay(old&&old.plan?old:null);
+  render();
+})();
+</script></body></html>
