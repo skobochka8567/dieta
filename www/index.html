@@ -27,18 +27,27 @@ button.main{background:var(--rose);color:#fff}
 details{margin-top:8px}summary{color:var(--deep);font-size:14px;cursor:pointer}
 ul,ol{padding-left:20px;margin:6px 0;font-size:15px}li{margin:2px 0}
 .tabs{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding:8px 14px calc(8px + env(safe-area-inset-bottom));gap:8px}
-.tabs button{flex:1;background:transparent;color:var(--mute)}.tabs button.on{background:var(--soft);color:var(--deep)}
+.tabs button{flex:1;padding:8px 4px;background:transparent;color:var(--mute)}.tabs button.on{background:var(--soft);color:var(--deep)}
 .shop label{display:flex;justify-content:space-between;gap:10px;padding:11px 4px;border-bottom:1px solid var(--line)}
 .shop input:checked+span{text-decoration:line-through;color:var(--mute)}
 .shop span{flex:1}.shop em{font-style:normal;color:var(--deep);font-weight:600}
 input[type=checkbox]{accent-color:var(--deep);width:18px;height:18px;margin-right:10px}
 .shop label>div{display:flex;align-items:center;flex:1}
+.note{background:var(--soft);border-radius:16px;padding:12px 14px;margin-bottom:12px;font-size:14px}
+.badge{display:inline-block;background:var(--soft);color:var(--deep);border-radius:10px;padding:2px 8px;font-size:12px;margin:4px 0}
+.wbig{font-size:34px;font-weight:700}.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
+.inp{display:flex;gap:8px;margin-top:8px}.inp input{flex:1;min-width:0;font:inherit;padding:9px 12px;border-radius:12px;border:1px solid var(--grey);background:#fff;color:var(--ink)}
+.wl{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:15px}.wl button{padding:2px 10px}
 </style></head><body><main id="app">Загрузка…</main>
-<div class="tabs"><button data-tab="menu" class="on">Меню</button><button data-tab="shop">Продукты</button></div>
+<div class="tabs"><button data-tab="menu" class="on">Меню</button><button data-tab="shop">Продукты</button><button data-tab="weight">Вес</button></div>
 <script>
 const SLOTS=[["breakfast","Завтрак"],["snack1","Перекус, по желанию"],["lunch","Обед"],["snack2","Перекус, по желанию"],["dinner","Ужин"]];
 const type=s=>s.startsWith("snack")?"snack":s;
-const KEY="menu_v1",today=()=>new Date().toISOString().slice(0,10);
+const KEY="menu_v1",WK="weight_v1",today=()=>new Date().toLocaleDateString("sv"),yest=()=>new Date(Date.now()-864e5).toLocaleDateString("sv");
+let W;try{W=JSON.parse(localStorage.getItem(WK))}catch(e){}
+if(!W||!W.log||!W.log.length)W={goal:null,log:[{d:today(),kg:95}]};
+const saveW=()=>localStorage.setItem(WK,JSON.stringify(W));
+const mult=s=>S.batch&&(s==="lunch"||s==="dinner")?2:1;
 let R=[],P={},S,tab="menu";const open=new Set();
 const byId=id=>R.find(r=>r.id===id);
 const hasEgg=r=>r.ingredients.some(i=>i.id==="egg");
@@ -55,46 +64,81 @@ function pick(slot){
   const r=rnd(c2);(S.seen[slot]=S.seen[slot]||[]).push(r.id);return r.id;
 }
 function newDay(prev){
-  S={date:today(),plan:{},seen:{},off:{},bought:{},hist:prev?[...prev.hist,Object.values(prev.plan)].slice(-3):[]};
-  SLOTS.forEach(([s])=>{S.plan[s]=pick(s)});save();
+  S={date:today(),plan:{},seen:{},off:{},bought:{},batch:false,left:[],hist:prev?[...prev.hist,Object.values(prev.plan)].slice(-3):[]};
+  if(prev&&prev.batch&&prev.date===yest()){["lunch","dinner"].forEach(s=>{S.plan[s]=prev.plan[s]});S.left=["lunch","dinner"]}
+  SLOTS.forEach(([s])=>{if(!S.plan[s])S.plan[s]=pick(s)});save();
 }
 const items=()=>SLOTS.filter(([s])=>!S.off[s]).map(([s])=>byId(S.plan[s]));
 function totals(){const t={kcal:0,protein:0,fat:0,carbs:0};items().forEach(r=>{for(const k in t)t[k]+=r[k]});return t}
 function shopList(){
-  const m={};items().forEach(r=>r.ingredients.forEach(i=>m[i.id]=(m[i.id]||0)+i.g));
+  const m={};SLOTS.filter(([s])=>!S.off[s]&&!S.left.includes(s)).forEach(([s])=>byId(S.plan[s]).ingredients.forEach(i=>m[i.id]=(m[i.id]||0)+i.g*mult(s)));
   return Object.entries(m).map(([id,g])=>{
     let q;if(id==="egg")q=Math.max(1,Math.round(g/55))+" шт";
     else{g=Math.round(g/5)*5;q=g>=1000?(g/1000).toFixed(2).replace(/\.?0+$/,"")+" кг":g+" г"}
     return {id,name:id==="egg"?"Яйца":P[id].name,q}}).sort((a,b)=>a.name.localeCompare(b.name,"ru"));
 }
 function slotHtml([s,label]){
+  const bd=S.left.includes(s)?"Осталось со вчера, готовить не надо":mult(s)>1?"Готовим на 2 дня, ингредиенты ×2":"";
   const r=byId(S.plan[s]),opt=type(s)==="snack",off=S.off[s];
   const ing=r.ingredients.map(i=>`<li>${i.id==="egg"?"Яйца":P[i.id].name} — ${i.id==="egg"?Math.round(i.g/55)+" шт":i.g+" г"}</li>`).join("");
   const steps=r.steps.map(x=>`<li>${x}</li>`).join("");
   return `<div class="slot ${opt?"opt":""} ${off?"off":""}"><div class="row"><span class="lab">${label}</span>
-  <span>${opt?`<button data-skip="${s}">${off?"Вернуть":"Пропустить"}</button> `:""}<button data-swap="${s}">Заменить</button></span></div>
-  <div class="name">${r.name}</div>
+  <span>${opt?`<button data-skip="${s}">${off?"Вернуть":"Пропустить"}</button> `:""}${S.left.includes(s)?"":`<button data-swap="${s}">Заменить</button>`}</span></div>
+  <div class="name">${r.name}</div>${bd?`<div class="badge">${bd}</div>`:""}
   <div class="meta">${r.kcal} ккал · Б ${r.protein} · Ж ${r.fat} · У ${r.carbs} · ${r.time} мин</div>
   <details data-d="${r.id}" ${open.has(r.id)?"open":""}><summary>Рецепт</summary><ul>${ing}</ul><ol>${steps}</ol></details></div>`;
+}
+function batchHtml(){
+  if(S.left.length)return `<div class="note">Обед и ужин остались со вчерашней готовки, сегодня их готовить не надо.</div>`;
+  const wk=[0,6].includes(new Date().getDay());
+  return `<div class="note"><div class="row"><div><b>Готовлю на 2 дня</b><div class="meta">${S.batch?"Обед и ужин готовь в двойном объёме, завтра они уже готовы. В списке продуктов двойные порции.":wk?"Сегодня выходной: удобно сготовить обед и ужин сразу на 2 дня.":"Обед и ужин на сегодня и завтра за один раз."}</div></div><button data-batch class="${S.batch?"main":""}">${S.batch?"Включено":"Включить"}</button></div></div>`;
+}
+const fd=d=>new Date(d).toLocaleDateString("ru-RU",{day:"numeric",month:"short"});
+function chart(){
+  const L=W.log;if(L.length<2)return `<div class="meta">График появится после второй записи.</div>`;
+  const t0=+new Date(L[0].d),t1=+new Date(L[L.length-1].d),ks=L.map(x=>x.kg).concat(W.goal||[]);
+  const mn=Math.min(...ks)-1,mx=Math.max(...ks)+1,X=d=>34+(+new Date(d)-t0)/((t1-t0)||1)*256,Y=k=>10+(mx-k)/(mx-mn)*100;
+  const pts=L.map(x=>X(x.d).toFixed(1)+","+Y(x.kg).toFixed(1)).join(" ");
+  return `<svg viewBox="0 0 300 135" width="100%"><g font-size="10" fill="#8a7f85"><text x="0" y="16">${Math.round(mx)}</text><text x="0" y="114">${Math.round(mn)}</text><text x="34" y="130">${fd(L[0].d)}</text><text x="290" y="130" text-anchor="end">${fd(L[L.length-1].d)}</text></g>
+  ${W.goal?`<line x1="34" x2="290" y1="${Y(W.goal)}" y2="${Y(W.goal)}" stroke="#a4607a" stroke-dasharray="4 4"/><text x="290" y="${Y(W.goal)-3}" text-anchor="end" font-size="10" fill="#a4607a">цель ${W.goal}</text>`:""}
+  <polyline points="${pts}" fill="none" stroke="#c4849a" stroke-width="2.5"/>${L.map(x=>`<circle cx="${X(x.d)}" cy="${Y(x.kg)}" r="3.5" fill="#a4607a"/>`).join("")}</svg>`;
+}
+function wView(){
+  const L=W.log,last=L[L.length-1],ch=last.kg-L[0].kg;let rate="";
+  const ref=[...L].reverse().find(x=>(new Date(last.d)-new Date(x.d))>=6*864e5);
+  if(ref){const w=(last.kg-ref.kg)/((new Date(last.d)-new Date(ref.d))/864e5)*7;
+    rate=`За неделю: ${w>0?"+":""}${w.toFixed(1)} кг. `+(w>0.2?"Вес растёт, посмотри на питание.":w>-0.2?"Почти без изменений, вес может колебаться.":w>=-1?"Спокойный, здоровый темп.":"Слишком быстро, не урезай еду ещё сильнее.")}
+  const left=W.goal?`До цели: ${Math.max(0,last.kg-W.goal).toFixed(1)} кг`:"Цель можно задать ниже";
+  return `<div class="top"><div><h1>Вес</h1><div class="sub">Взвешиваться лучше утром, раз в несколько дней</div></div></div>
+  <div class="tot"><span class="wbig">${last.kg.toFixed(1)}</span> кг<div class="macros"><span><i>${ch>0?"+":""}${ch.toFixed(1)}</i>с начала</span><span style="flex:2"><i style="font-size:14px">${left}</i></span></div></div>
+  ${rate?`<div class="note">${rate}</div>`:""}
+  <div class="card"><b>Записать вес сегодня</b><div class="inp"><input id="kg" type="text" inputmode="decimal" placeholder="например, 94,3"><button class="main" data-wsave>Записать</button></div>
+  <div class="inp"><input id="goal" type="text" inputmode="decimal" placeholder="Цель, кг" value="${W.goal||""}"><button data-gsave>Цель</button></div></div>
+  <div class="card">${chart()}</div>
+  <div class="card">${[...L].reverse().slice(0,12).map(x=>`<div class="wl"><span>${fd(x.d)}</span><span><b>${x.kg.toFixed(1)} кг</b> ${L.length>1?`<button data-wdel="${x.d}">×</button>`:""}</span></div>`).join("")}</div>`;
 }
 function render(){
   const d=new Date().toLocaleDateString("ru-RU",{weekday:"long",day:"numeric",month:"long"});
   let h;
   if(tab==="menu"){const t=totals();
     h=`<div class="top"><div><h1>${d}</h1><div class="sub">Меню на сегодня</div></div><button data-new>Новое меню</button></div>
-    <div class="tot"><b>${t.kcal}</b> ккал за день<div class="macros"><span><i>${t.protein}</i>белки</span><span><i>${t.fat}</i>жиры</span><span><i>${t.carbs}</i>углеводы</span></div></div>`+SLOTS.map(slotHtml).join("");
-  }else{
+    ${batchHtml()}<div class="tot"><b>${t.kcal}</b> ккал за день<div class="macros"><span><i>${t.protein}</i>белки</span><span><i>${t.fat}</i>жиры</span><span><i>${t.carbs}</i>углеводы</span></div></div>`+SLOTS.map(slotHtml).join("");
+  }else if(tab==="weight"){h=wView()}else{
     h=`<div class="top"><div><h1>Продукты</h1><div class="sub">На весь день, перекусы учитываются, если не пропущены</div></div></div><div class="shop">`+
     shopList().map(x=>`<label><div><input type="checkbox" data-buy="${x.id}" ${S.bought[x.id]?"checked":""}><span>${x.name}</span></div><em>${x.q}</em></label>`).join("")+"</div>";
   }
   document.getElementById("app").innerHTML=h;
 }
 document.addEventListener("click",e=>{
-  const t=e.target.closest("[data-swap],[data-skip],[data-new],[data-tab]");if(!t)return;
-  if(t.dataset.tab){tab=t.dataset.tab;document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b===t))}
-  else if(t.dataset.swap){S.plan[t.dataset.swap]=pick(t.dataset.swap);save()}
-  else if(t.dataset.skip){S.off[t.dataset.skip]=!S.off[t.dataset.skip];save()}
-  else if("new" in t.dataset){S.hist=S.hist;SLOTS.forEach(([s])=>{S.plan[s]=pick(s)});S.bought={};save()}
+  const t=e.target.closest("[data-swap],[data-skip],[data-new],[data-tab],[data-batch],[data-wsave],[data-gsave],[data-wdel]");if(!t)return;const D=t.dataset;
+  if(D.tab){tab=D.tab;document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b===t))}
+  else if(D.swap){S.plan[D.swap]=pick(D.swap);save()}
+  else if(D.skip){S.off[D.skip]=!S.off[D.skip];save()}
+  else if("batch" in D){S.batch=!S.batch;save()}
+  else if("new" in D){SLOTS.forEach(([s])=>{if(!S.left.includes(s))S.plan[s]=pick(s)});S.bought={};save()}
+  else if("wsave" in D){const v=parseFloat(document.getElementById("kg").value.replace(",","."));if(v>30&&v<300){const d=today(),x=W.log.find(a=>a.d===d);x?x.kg=v:W.log.push({d,kg:v});W.log.sort((a,b)=>a.d<b.d?-1:1);saveW()}}
+  else if("gsave" in D){const v=parseFloat(document.getElementById("goal").value.replace(",","."));W.goal=v>30&&v<300?v:null;saveW()}
+  else if(D.wdel){W.log=W.log.filter(x=>x.d!==D.wdel);saveW()}
   render();
 });
 document.addEventListener("change",e=>{if(e.target.dataset.buy){S.bought[e.target.dataset.buy]=e.target.checked;save()}});
@@ -102,7 +146,7 @@ document.addEventListener("toggle",e=>{const id=e.target.dataset&&e.target.datas
 (async()=>{
   [R,P]=await Promise.all([fetch("recipes.json").then(r=>r.json()),fetch("products.json").then(r=>r.json())]);
   let old;try{old=JSON.parse(localStorage.getItem(KEY))}catch(e){}
-  if(old&&old.date===today()&&Object.values(old.plan).every(byId))S=old;else newDay(old&&old.plan?old:null);
+  if(old&&old.date===today()&&Object.values(old.plan).every(byId)){S=old;S.left=S.left||[]}else newDay(old&&old.plan?old:null);
   render();
 })();
 </script></body></html>
